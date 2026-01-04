@@ -1,0 +1,42 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies (root)
+        run: npm install
+      
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+      
+      - name: Install expo-app dependencies
+        run: cd expo-app && npm install
+      
+      - name: Build Android APK
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: cd expo-app && eas build --platform android --non-interactive
+      
+      - name: Upload APK to artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: expo-app/build
+          retention-days: 30
