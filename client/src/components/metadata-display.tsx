@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { CodeBlock } from "@/components/ui/code-block";
 import type { BookMetadata } from "@shared/schema";
 
 interface MetadataDisplayProps {
@@ -77,16 +78,20 @@ export function MetadataDisplay({
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Title</Label>
               {editable && onMetadataChange ? (
-                <Input
-                  value={metadata.title}
-                  onChange={(e) => onMetadataChange({ title: e.target.value })}
-                  className="font-semibold w-full"
-                  data-testid="input-metadata-title"
-                />
+                <CodeBlock>
+                  <Input
+                    value={metadata.title}
+                    onChange={(e) => onMetadataChange({ title: e.target.value })}
+                    className="font-semibold w-full"
+                    data-testid="input-metadata-title"
+                  />
+                </CodeBlock>
               ) : (
-                <p className="font-semibold text-sm break-words line-clamp-2 w-full" data-testid="text-metadata-title">
-                  {metadata.title}
-                </p>
+                <CodeBlock>
+                  <p className="font-semibold text-sm break-words w-full" data-testid="text-metadata-title">
+                    {metadata.title}
+                  </p>
+                </CodeBlock>
               )}
             </div>
 
@@ -130,17 +135,21 @@ export function MetadataDisplay({
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Description</Label>
             {editable && onMetadataChange ? (
-              <Textarea
-                value={metadata.description || ""}
-                onChange={(e) => onMetadataChange({ description: e.target.value })}
-                rows={3}
-                className="resize-none text-sm"
-                data-testid="input-metadata-description"
-              />
+              <CodeBlock>
+                <Textarea
+                  value={metadata.description || ""}
+                  onChange={(e) => onMetadataChange({ description: e.target.value })}
+                  rows={3}
+                  className="resize-none text-sm"
+                  data-testid="input-metadata-description"
+                />
+              </CodeBlock>
             ) : metadata.description ? (
-              <p className="text-sm text-muted-foreground line-clamp-3" data-testid="text-metadata-description">
-                {metadata.description}
-              </p>
+              <CodeBlock>
+                <p className="text-sm text-muted-foreground" data-testid="text-metadata-description">
+                  {metadata.description}
+                </p>
+              </CodeBlock>
             ) : null}
           </div>
         )}

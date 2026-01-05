@@ -1,5 +1,8 @@
-import type { DownloadJob, Chapter, DownloadStatusType } from "@shared/schema";
+import type { DownloadJob, Chapter, DownloadStatusType, BookMetadata } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { db } from "./db";
+import { novels, chapters as dbChapters } from "./db/schema";
+import { and, eq, inArray, desc } from "drizzle-orm";
 
 export interface IStorage {
   createJob(url: string): Promise<DownloadJob>;
@@ -9,103 +12,106 @@ export interface IStorage {
   updateJobChapters(id: string, chapters: Chapter[]): Promise<DownloadJob | undefined>;
   updateChapterStatus(jobId: string, chapterId: string, status: DownloadStatusType, content?: string, error?: string, imageUrls?: string[]): Promise<void>;
   updateAnalysisProgress(jobId: string, progress: number): Promise<void>;
-  deleteJob(id: string): Promise<boolean>;
+  deleteJob(id: string): Promise<void>;
   clearCompletedJobs(): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private jobs: Map<string, DownloadJob>;
-
-  constructor() {
-    this.jobs = new Map();
-  }
-
+class DbStorage implements IStorage {
   async createJob(url: string): Promise<DownloadJob> {
     const id = randomUUID();
-    const job: DownloadJob = {
+    const newJob = {
       id,
       url,
-      chapters: [],
-      selectedChapterIds: [],
-      outputFormat: "epub",
       status: "pending",
       progress: 0,
-      createdAt: Date.now(),
+      createdAt: new Date(),
     };
-    this.jobs.set(id, job);
-    return job;
+    await db.insert(novels).values(newJob);
+    return this.getJob(id) as Promise<DownloadJob>;
   }
-
   async getJob(id: string): Promise<DownloadJob | undefined> {
-    return this.jobs.get(id);
-  }
-
-  async getAllJobs(): Promise<DownloadJob[]> {
-    return Array.from(this.jobs.values()).sort((a, b) => b.createdAt - a.createdAt);
-  }
-
-  async updateJob(id: string, updates: Partial<DownloadJob>): Promise<DownloadJob | undefined> {
-    const job = this.jobs.get(id);
+    const job = await db.query.novels.findFirst({ where: eq(novels.id, id) });
     if (!job) return undefined;
-    
-    const updatedJob = { ...job, ...updates };
-    this.jobs.set(id, updatedJob);
-    return updatedJob;
-  }
 
-  async updateJobChapters(id: string, chapters: Chapter[]): Promise<DownloadJob | undefined> {
-    const job = this.jobs.get(id);
-    if (!job) return undefined;
+    const chapters = await db.query.chapters.findMany({ where: eq(dbChapters.novelId, id) });
     
-    job.chapters = chapters;
-    this.jobs.set(id, job);
-    return job;
-  }
-
-  async updateChapterStatus(
-    jobId: string,
-    chapterId: string,
-    status: DownloadStatusType,
-    content?: string,
-    error?: string,
-    imageUrls?: string[]
-  ): Promise<void> {
-    const job = this.jobs.get(jobId);
-    if (!job) return;
-    
-    const chapterIndex = job.chapters.findIndex((ch) => ch.id === chapterId);
-    if (chapterIndex === -1) return;
-    
-    job.chapters[chapterIndex] = {
-      ...job.chapters[chapterIndex],
-      status,
-      content,
-      error,
-      imageUrls,
+    return {
+      ...job,
+      metadata: job.metadata as BookMetadata,
+      chapters: chapters.map(c => ({...c, status: c.status as DownloadStatusType})),
+      selectedChapterIds: job.selectedChapterIds as string[],
+      outputFormat: job.outputFormat as any,
+      status: job.status as DownloadStatusType,
+      createdAt: job.createdAt ? new Date(job.createdAt).getTime() : 0,
+      completedAt: job.completedAt ? new Date(job.completedAt).getTime() : undefined,
     };
-    
-    this.jobs.set(jobId, job);
   }
+  async getAllJobs(): Promise<DownloadJob[]> {
+    const allNovels = await db.query.novels.findMany({
+      orderBy: [desc(novels.createdAt)],
+    });
 
-  async deleteJob(id: string): Promise<boolean> {
-    return this.jobs.delete(id);
-  }
+    if (allNovels.length === 0) {
+      return [];
+    }
 
-  async updateAnalysisProgress(jobId: string, progress: number): Promise<void> {
-    const job = this.jobs.get(jobId);
-    if (!job) return;
-    
-    job.progress = Math.min(progress, 99);
-    this.jobs.set(jobId, job);
-  }
+    const allChapters = await db.query.chapters.findMany({
+      where: inArray(dbChapters.novelId, allNovels.map(n => n.id))
+    });
 
-  async clearCompletedJobs(): Promise<void> {
-    for (const [id, job] of this.jobs.entries()) {
-      if (job.status === "complete" || job.status === "error") {
-        this.jobs.delete(id);
+    const chaptersByNovelId = new Map<string, Chapter[]>();
+    for (const chapter of allChapters) {
+      const chap = { ...chapter, status: chapter.status as DownloadStatusType };
+      if (!chaptersByNovelId.has(chapter.novelId)) {
+        chaptersByNovelId.set(chapter.novelId, [chap]);
+      } else {
+        chaptersByNovelId.get(chapter.novelId)!.push(chap);
       }
+    }
+
+    const jobs: DownloadJob[] = allNovels.map(novel => ({
+      ...novel,
+      metadata: novel.metadata as BookMetadata,
+      chapters: chaptersByNovelId.get(novel.id) || [],
+      selectedChapterIds: novel.selectedChapterIds as string[],
+      outputFormat: novel.outputFormat as any,
+      status: novel.status as DownloadStatusType,
+      createdAt: novel.createdAt ? new Date(novel.createdAt).getTime() : 0,
+      completedAt: novel.completedAt ? new Date(novel.completedAt).getTime() : undefined,
+    }));
+
+    return jobs;
+  }
+  async updateJob(id: string, updates: Partial<DownloadJob>): Promise<DownloadJob | undefined> {
+    const { chapters, ...rest } = updates;
+    await db.update(novels).set(rest).where(eq(novels.id, id));
+    return this.getJob(id);
+  }
+  async updateJobChapters(id: string, chapters: Chapter[]): Promise<DownloadJob | undefined> {
+    await db.delete(dbChapters).where(eq(dbChapters.novelId, id));
+    if (chapters.length > 0) {
+      await db.insert(dbChapters).values(chapters.map(c => ({...c, novelId: id})));
+    }
+    return this.getJob(id);
+  }
+  async updateChapterStatus(jobId: string, chapterId: string, status: DownloadStatusType, content?: string, error?: string, imageUrls?: string[]): Promise<void> {
+    await db.update(dbChapters).set({ status, content, error, imageUrls: imageUrls ? JSON.stringify(imageUrls) : undefined }).where(and(eq(dbChapters.id, chapterId), eq(dbChapters.novelId, jobId)));
+  }
+  async updateAnalysisProgress(jobId: string, progress: number): Promise<void> {
+    await db.update(novels).set({ progress: Math.min(progress, 99) }).where(eq(novels.id, jobId));
+  }
+  async deleteJob(id: string): Promise<void> {
+    await db.delete(novels).where(eq(novels.id, id));
+  }
+  async clearCompletedJobs(): Promise<void> {
+    const completedJobs = await db.query.novels.findMany({
+      where: eq(novels.status, "complete"),
+    });
+    if (completedJobs.length > 0) {
+      const ids = completedJobs.map((job) => job.id);
+      await db.delete(novels).where(inArray(novels.id, ids));
     }
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DbStorage();

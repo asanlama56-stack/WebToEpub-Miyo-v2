@@ -1,4 +1,4 @@
-import { ListOrdered, Trash2, RefreshCw } from "lucide-react";
+import { ListOrdered, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -61,46 +61,23 @@ export function DownloadQueue({
       <CardContent>
         <ScrollArea className="max-h-96">
           <div className="space-y-3">
-            {activeJobs.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Active
-                </h4>
-                <div className="space-y-2">
-                  {activeJobs.map((job) => (
-                    <DownloadProgress
-                      key={job.id}
-                      job={job}
-                      onPause={onPause ? () => onPause(job.id) : undefined}
-                      onResume={onResume ? () => onResume(job.id) : undefined}
-                      onCancel={onCancel ? () => onCancel(job.id) : undefined}
-                      onDownloadFile={
-                        onDownloadFile ? () => onDownloadFile(job) : undefined
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {completedJobs.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Completed
-                </h4>
-                <div className="space-y-2">
-                  {completedJobs.map((job) => (
-                    <DownloadProgress
-                      key={job.id}
-                      job={job}
-                      onDownloadFile={
-                        onDownloadFile ? () => onDownloadFile(job) : undefined
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+            {activeJobs.map((job) => (
+              <DownloadProgress
+                key={job.id}
+                job={job}
+                onPause={() => onPause?.(job.id)}
+                onResume={() => onResume?.(job.id)}
+                onCancel={() => onCancel?.(job.id)}
+                onDownloadFile={() => onDownloadFile?.(job)}
+              />
+            ))}
+            {completedJobs.map((job) => (
+              <DownloadProgress
+                key={job.id}
+                job={job}
+                onDownloadFile={() => onDownloadFile?.(job)}
+              />
+            ))}
           </div>
         </ScrollArea>
       </CardContent>

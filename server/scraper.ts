@@ -42,7 +42,7 @@ async function fetchWithRetry(
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: \${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       return await response.text();
@@ -178,7 +178,7 @@ const removeSelectors = [
 ];
 
 function isChapterLink(text: string, href: string): boolean {
-  const combinedText = `\${text} \${href}`.toLowerCase();
+  const combinedText = `${text} ${href}`.toLowerCase();
   return chapterPatterns.some((pattern) => pattern.test(combinedText));
 }
 
@@ -231,7 +231,6 @@ export async function analyzeUrl(url: string): Promise<{ metadata: BookMetadata;
         const fullUrl = new URL(href, url).href;
         if (!seenUrls.has(fullUrl)) {
           seenUrls.add(fullUrl);
-<<<<<<< HEAD
           chapters.push({ 
             id: randomUUID(), 
             title: text, 
@@ -239,15 +238,11 @@ export async function analyzeUrl(url: string): Promise<{ metadata: BookMetadata;
             index: chapters.length, 
             status: "pending" 
           });
-=======
-          chapters.push({ id: randomUUID(), title: text, url: fullUrl, index: chapters.length, status: "pending" });
->>>>>>> 9497b2f5e25b5cfc045596d5b39bb223ee40315c
         }
       } catch {}
     }
   });
 
-<<<<<<< HEAD
   // Sort chapters by title number if possible
   chapters.sort((a, b) => {
     const numA = extractNumber(a.title);
@@ -256,8 +251,6 @@ export async function analyzeUrl(url: string): Promise<{ metadata: BookMetadata;
     return a.index - b.index;
   });
 
-=======
->>>>>>> 9497b2f5e25b5cfc045596d5b39bb223ee40315c
   const contentType = detectContentType(html, url);
   return {
     metadata: {
@@ -280,7 +273,6 @@ export async function fetchChapterContent(
   if (contentType === "manga") {
     const imageUrls: string[] = [];
     $("img").each((_, img) => {
-<<<<<<< HEAD
       let src = $(img).attr("data-src") || $(img).attr("src") || $(img).attr("data-original");
       if (src) {
         try {
@@ -293,10 +285,6 @@ export async function fetchChapterContent(
           }
         } catch (e) {}
       }
-=======
-      const src = $(img).attr("data-src") || $(img).attr("src");
-      if (src && !src.includes("logo")) imageUrls.push(new URL(src, chapterUrl).toString());
->>>>>>> 9497b2f5e25b5cfc045596d5b39bb223ee40315c
     });
     return { content: "", wordCount: 0, imageUrls };
   }

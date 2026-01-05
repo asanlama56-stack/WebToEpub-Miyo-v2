@@ -1,17 +1,25 @@
+import "./dotenv";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { log } from "./utils/logger";
 
 const app = express();
 const httpServer = createServer(app);
 
+// Add a custom property to the IncomingMessage interface
+// to hold the raw request body.
+// This is used by the express.json middleware.
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
   }
 }
 
+// The express.json middleware is used to parse incoming JSON requests.
+// The verify option is used to capture the raw request body before it is parsed.
+// This is useful for debugging and logging.
 app.use(
   express.json({
     verify: (req, _res, buf) => {
@@ -20,24 +28,20 @@ app.use(
   }),
 );
 
+// The express.urlencoded middleware is used to parse incoming URL-encoded requests.
 app.use(express.urlencoded({ extended: false }));
 
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
-}
-
+// This middleware logs every incoming request.
+// It captures the request method, path, status code, and response time.
+// It also logs the response body for API requests.
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
+  // We're monkey-patching the res.json method to capture the response body.
+  // This is a bit of a hack, but it's a simple way to log the response body
+  // without having to modify the application code.
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
     capturedJsonResponse = bodyJson;
@@ -52,7 +56,7 @@ app.use((req, res, next) => {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
-      log(logLine);
+      log(logLine, "express");
     }
   });
 
@@ -62,6 +66,8 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
+  // This is a generic error handler for the application.
+  // It catches any unhandled errors and returns a JSON response.
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -70,15 +76,7 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
-  }
+  serveStatic(app);
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
@@ -92,7 +90,7 @@ app.use((req, res, next) => {
       reusePort: true,
     },
     () => {
-      log(`serving on port ${port}`);
+      log(`serving on port ${port}`, "express");
     },
   );
 })();

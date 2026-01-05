@@ -181,7 +181,7 @@ export function ChapterList({
                         />
                         <StatusIcon className={`h-4 w-4 flex-shrink-0 ${statusColor}`} />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate">{chapter.title}</p>
+                          <p className="text-sm break-all">{chapter.title}</p>
                           {chapter.wordCount && (
                             <p className="text-xs text-muted-foreground">
                               ~{Math.round(chapter.wordCount / 1000)}k words

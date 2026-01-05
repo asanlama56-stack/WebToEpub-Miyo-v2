@@ -146,3 +146,12 @@ export const insertUserSchema = z.object({
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type AIMode = "assistant" | "writer";
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  thinking?: string;
+  toolCalls?: any[]; 
+}
