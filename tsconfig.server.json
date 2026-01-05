@@ -3,7 +3,9 @@
   "compilerOptions": {
     "module": "commonjs",
     "outDir": "dist",
-    "noEmit": false
+    "noEmit": false,
+    "moduleResolution": "node",
+    "allowImportingTsExtensions": false
   },
   "include": ["server"]
 }

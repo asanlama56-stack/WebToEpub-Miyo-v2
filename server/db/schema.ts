@@ -1,6 +1,6 @@
 import { serial, text, pgTable, timestamp, varchar, integer, boolean, jsonb } from "drizzle-orm/pg-core";
 
-export const novels = pgTable("novels", {
+export const downloadJobs = pgTable("novels", {
   id: varchar("id", { length: 36 }).primaryKey(),
   url: text("url").notNull(),
   title: text("title"),
@@ -22,7 +22,7 @@ export const novels = pgTable("novels", {
 
 export const chapters = pgTable("chapters", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  novelId: varchar("novel_id", { length: 36 }).notNull(),
+  jobId: varchar("job_id", { length: 36 }).notNull(),
   title: text("title").notNull(),
   url: text("url").notNull(),
   index: integer("index").notNull(),

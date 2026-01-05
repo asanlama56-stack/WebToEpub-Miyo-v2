@@ -22,7 +22,7 @@ import { Download, Loader2, Book, Settings, ArrowLeft } from "lucide-react";
 import type { DownloadJob, BookMetadata, Chapter } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
 
-export function HomePage() {
+export default function HomePage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 

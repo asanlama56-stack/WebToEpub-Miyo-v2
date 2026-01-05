@@ -3,14 +3,17 @@ import type { Express, Request, Response } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import rateLimit from "express-rate-limit";
-import { storage } from "./storage";
+import { createDownloadJob, updateDownloadJob, getDownloadJobs, getJobById } from "./storage";
 import { analyzeUrl, downloadChaptersParallel } from "./scraper";
 import { generateOutput } from "./generator";
-import { analyzeUrlSchema, startDownloadSchema, type BookMetadata, type DownloadStatusType, defaultSettings } from "@shared/schema";
+import { analyzeUrlSchema, startDownloadSchema, type BookMetadata, type DownloadJob, defaultSettings, Chapter } from "@shared/schema";
 import { getImageCache } from "./pipeline/imagePipeline";
 import { createImageJob, getImageJob } from "./jobs/imageJobs";
 import { asyncHandler } from "./middleware/asyncHandler";
 import { errorHandler } from "./middleware/errorHandler";
+import db from "./storage";
+import { downloadJobs } from "./db/schema";
+import { inArray } from "drizzle-orm";
 
 const activeDownloads = new Map<string, { abort: boolean }>();
 const generatedFiles = new Map<string, { buffer: Buffer; filename: string; mimeType: string }>();
@@ -42,24 +45,23 @@ export async function registerRoutes(
     const parsed = analyzeUrlSchema.parse(req.body);
     const { url } = parsed;
 
-    const job = await storage.createJob(url);
-    await storage.updateJob(job.id, { status: "analyzing", progress: 0 });
+    const job = await createDownloadJob(url);
+    await updateDownloadJob(job.id, { status: "analyzing", progress: 0 });
 
     try {
-      await storage.updateAnalysisProgress(job.id, 20);
       const { metadata, chapters } = await analyzeUrl(url);
 
       const imageJob = createImageJob(metadata?.coverUrl);
 
-      await storage.updateAnalysisProgress(job.id, 80);
-      await storage.updateJobChapters(job.id, chapters);
-      
-      const updatedJob = await storage.updateJob(job.id, {
+      await updateDownloadJob(job.id, {
         metadata: metadata ? { ...metadata, imageJobId: imageJob.id } : undefined,
-        status: "pending",
+        chapters: chapters,
         selectedChapterIds: chapters.map((ch) => ch.id),
         progress: 100,
+        status: "pending",
       });
+
+      const updatedJob = await getJobById(job.id);
 
       res.json({
         success: true,
@@ -67,7 +69,7 @@ export async function registerRoutes(
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Analysis failed";
-      await storage.updateJob(job.id, {
+      await updateDownloadJob(job.id, {
         status: "error",
         error: errorMessage,
         progress: 0,
@@ -76,7 +78,7 @@ export async function registerRoutes(
       res.json({
         success: false,
         message: errorMessage,
-        job: await storage.getJob(job.id),
+        job: await getJobById(job.id),
       });
     }
   }));
@@ -86,7 +88,7 @@ export async function registerRoutes(
     const parsed = startDownloadSchema.parse(req.body);
     const { jobId, selectedChapterIds, outputFormat, settings } = parsed;
 
-    const job = await storage.getJob(jobId);
+    const job = await getJobById(jobId);
     if (!job) {
       return res.status(404).json({ success: false, message: "Job not found" });
     }
@@ -99,8 +101,8 @@ export async function registerRoutes(
     }
 
     const metadataUpdates = req.body.metadata ? (req.body.metadata as Partial<BookMetadata>) : {};
-    await storage.updateJob(jobId, {
-      metadata: { ...job.metadata!, ...metadataUpdates },
+    await updateDownloadJob(jobId, {
+      metadata: { ...(job.metadata as BookMetadata), ...metadataUpdates },
       selectedChapterIds,
       outputFormat,
       status: "downloading",
@@ -110,8 +112,8 @@ export async function registerRoutes(
     const downloadControl = { abort: false };
     activeDownloads.set(jobId, downloadControl);
 
-    const chaptersToDownload = job.chapters.filter((ch) =>
-      selectedChapterIds.includes(ch.id)
+    const chaptersToDownload = (job.chapters as Chapter[]).filter((ch) =>
+      (job.selectedChapterIds as string[]).includes(ch.id)
     );
 
     const concurrency = settings?.concurrentDownloads || 3;
@@ -123,17 +125,13 @@ export async function registerRoutes(
       chaptersToDownload,
       concurrency,
       delay,
-      job.metadata?.detectedContentType || "novel",
+      (job.metadata as BookMetadata)?.detectedContentType || "novel",
       async (chapterId, status, content, wordCount, error, imageUrls) => {
         if (downloadControl.abort) return;
 
-        const chapterStatus: DownloadStatusType = status === "downloading"
-          ? "downloading"
-          : status === "complete"
-          ? "complete"
-          : "error";
-
-        await storage.updateChapterStatus(jobId, chapterId, chapterStatus, content, error, imageUrls);
+        await updateDownloadJob(job.id, {
+          chapters: (job.chapters as Chapter[]).map((ch) => ch.id === chapterId ? { ...ch, status } : ch),
+        });
 
         if (status === "complete" || status === "error") {
           completedCount++;
@@ -143,7 +141,7 @@ export async function registerRoutes(
           const remaining = chaptersToDownload.length - completedCount;
           const eta = speed > 0 ? remaining / speed : 0;
 
-          await storage.updateJob(jobId, {
+          await updateDownloadJob(jobId, {
             progress,
             downloadSpeed: Math.round(speed * 1000),
             eta: Math.round(eta),
@@ -162,26 +160,26 @@ export async function registerRoutes(
   // This function is used to process and generate the output file.
   async function processAndGenerate(jobId: string, outputFormat: "epub" | "pdf" | "html") {
     try {
-      await storage.updateJob(jobId, { status: "processing" });
+      await updateDownloadJob(jobId, { status: "processing" });
 
-      const job = await storage.getJob(jobId);
+      const job = await getJobById(jobId);
       if (!job || !job.metadata) {
         throw new Error("Job or metadata not found");
       }
 
-      const chaptersWithContent = job.chapters.filter(
-        (ch) => job.selectedChapterIds.includes(ch.id) && ch.content
+      const chaptersWithContent = (job.chapters as Chapter[]).filter(
+        (ch) => (job.selectedChapterIds as string[]).includes(ch.id) && ch.content
       );
 
       if (chaptersWithContent.length === 0) {
         throw new Error("No chapters with content available");
       }
 
-      const result = await generateOutput(job.metadata, chaptersWithContent, outputFormat);
+      const result = await generateOutput(job.metadata as BookMetadata, chaptersWithContent, outputFormat);
 
       generatedFiles.set(jobId, result);
 
-      await storage.updateJob(jobId, {
+      await updateDownloadJob(jobId, {
         status: "complete",
         progress: 100,
         completedAt: Date.now(),
@@ -191,7 +189,7 @@ export async function registerRoutes(
       activeDownloads.delete(jobId);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Generation failed";
-      await storage.updateJob(jobId, {
+      await updateDownloadJob(jobId, {
         status: "error",
         error: errorMessage,
       });
@@ -201,13 +199,13 @@ export async function registerRoutes(
 
   // This route is used to get all the jobs.
   app.get("/api/jobs", asyncHandler(async (_req: Request, res: Response) => {
-    const jobs = await storage.getAllJobs();
+    const jobs = await getDownloadJobs();
     res.json(jobs);
   }));
 
   // This route is used to get a specific job.
   app.get("/api/jobs/:id", asyncHandler(async (req: Request, res: Response) => {
-    const job = await storage.getJob(req.params.id);
+    const job = await getJobById(req.params.id);
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
     }
@@ -223,19 +221,19 @@ export async function registerRoutes(
       activeDownloads.delete(jobId);
     }
 
-    await storage.updateJob(jobId, { status: "error", error: "Cancelled by user" });
+    await updateDownloadJob(jobId, { status: "error", error: "Cancelled by user" });
     res.json({ success: true });
   }));
 
   // This route is used to clear all the completed jobs.
   app.post("/api/jobs/clear-completed", asyncHandler(async (_req: Request, res: Response) => {
-    const jobs = await storage.getAllJobs();
+    const jobs = await getDownloadJobs();
     for (const job of jobs) {
       if (job.status === "complete" || job.status === "error") {
         generatedFiles.delete(job.id);
       }
     }
-    await storage.clearCompletedJobs();
+    await db.delete(downloadJobs).where(inArray(downloadJobs.status, ["complete", "error"]));
     res.json({ success: true });
   }));
 
@@ -249,7 +247,7 @@ export async function registerRoutes(
     }
 
     res.setHeader("Content-Type", file.mimeType);
-    res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+    res.setHeader("Content-Disposition", `attachment; filename=\"${file.filename}\"`);
     res.setHeader("Content-Length", file.buffer.length);
     res.send(file.buffer);
   }));

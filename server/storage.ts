@@ -1,25 +1,26 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { chapters, novels, downloadJobs } from "./db/schema";
+import { chapters, downloadJobs } from "./db/schema";
 import * as schema from "./db/schema";
 import type { DownloadJob, Chapter, BookMetadata } from "@shared/schema";
 import { eq, inArray } from "drizzle-orm";
+import { v4 as uuidv4 } from "uuid";
 
 const client = postgres(process.env.DATABASE_URL as string, { max: 1 });
 const db = drizzle(client, { schema });
 
-export async function getNovelById(id: string) {
-  return await db.query.novels.findFirst({
-    where: eq(novels.id, id),
+export async function getJobById(id: string) {
+  return await db.query.downloadJobs.findFirst({
+    where: eq(downloadJobs.id, id),
     with: {
       chapters: true,
     },
   });
 }
 
-export async function getChaptersByNovelId(novelId: string): Promise<Chapter[]> {
+export async function getChaptersByJobId(jobId: string): Promise<Chapter[]> {
   const results = await db.query.chapters.findMany({
-    where: eq(chapters.novelId, novelId),
+    where: eq(chapters.jobId, jobId),
   });
 
   // Manually mapping to satisfy the more specific Chapter type
@@ -69,14 +70,17 @@ export async function getDownloadJobs(): Promise<DownloadJob[]> {
 }
 
 export async function createDownloadJob(url: string): Promise<DownloadJob> {
-  const [newJob] = await db.insert(downloadJobs).values({ url }).returning();
+  const id = uuidv4();
+  const [newJob] = await db.insert(downloadJobs).values({ id, url }).returning();
   return {
-    ...newJob,
+    id,
+    url,
     chapters: [],
     selectedChapterIds: [],
-    outputFormat: 'epub', // Set a default
+    outputFormat: 'epub',
     progress: 0,
-    createdAt: newJob.createdAt.getTime(),
+    status: 'pending',
+    createdAt: (newJob.createdAt ?? new Date()).getTime(),
   };
 }
 
