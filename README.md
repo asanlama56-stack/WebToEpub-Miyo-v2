@@ -1,5 +1,7 @@
 # WebToEpub-Miyo-v2
 
+![Logo](client/public/logo.png)
+
 This project is a web application that converts web articles into EPUB format for a better reading experience on e-readers and other devices.
 
 ## Features
