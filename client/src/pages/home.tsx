@@ -1,366 +1,373 @@
-import { useState, useCallback, useEffect } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Book, Download, Loader2, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
+
 import { UrlInput } from "@/components/url-input";
-import { FormatSelector } from "@/components/format-selector";
-import { ChapterList } from "@/components/chapter-list";
 import { MetadataDisplay } from "@/components/metadata-display";
-import { SettingsPanel } from "@/components/settings-panel";
+import { ChapterList } from "@/components/chapter-list";
+import { FormatSelector } from "@/components/format-selector";
 import { DownloadQueue } from "@/components/download-queue";
 import { EmptyState } from "@/components/empty-state";
-import type {
-  DownloadJob,
-  BookMetadata,
-  OutputFormatType,
-  DownloadSettings,
-  AnalyzeResponse,
-} from "@shared/schema";
-import { defaultSettings } from "@shared/schema";
+import { SettingsPanel } from "@/components/settings-panel";
 
-export default function Home() {
-  const [currentJob, setCurrentJob] = useState<DownloadJob | null>(null);
-  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
-  const [outputFormat, setOutputFormat] = useState<OutputFormatType>("epub");
-  const [settings, setSettings] = useState<DownloadSettings>(defaultSettings);
-  const [editableMetadata, setEditableMetadata] = useState<Partial<BookMetadata>>({});
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageJobId, setImageJobId] = useState<string | null>(null);
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
+import { Sidebar, SidebarContent, SidebarHeader, SidebarFooter, SidebarClose, SidebarTrigger, } from "@/components/ui/sidebar";
+import { Card, CardContent } from "@/components/ui/card";
 
+import { Download, Loader2, Book, Settings, ArrowLeft } from "lucide-react";
+
+import type { DownloadJob, BookMetadata, Chapter } from "@shared/schema";
+import { queryClient } from "@/lib/queryClient";
+
+export function HomePage() {
+  const navigate = useNavigate();
   const { toast } = useToast();
 
+  const [url, setUrl] = useState("");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<BookMetadata | null>(null);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
+  const [outputFormat, setOutputFormat] = useState<any>("epub");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isImageLoaded, setIsImageLoaded] = useState<boolean | string>(false);
+
   const { data: downloadJobs = [] } = useQuery<DownloadJob[]>({
-    queryKey: ["/api/jobs"],
-    refetchInterval: 2000,
-  });
-
-  useEffect(() => {
-    if (!imageJobId) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/jobs/${imageJobId}/image-status`);
-        if (!response.ok) {
-          console.warn("[IMG-POLL] Status check failed:", response.status);
-          return;
-        }
-        const data = await response.json();
-        console.log("[IMG-POLL] Status:", data.state, "FinalUrl:", !!data.finalUrl);
-
-        if (data.state === "success" && data.finalUrl) {
-          setEditableMetadata(prev => ({ ...prev, coverUrl: data.finalUrl }));
-          setImageLoaded(true);
-          clearInterval(interval);
-        } else if (data.state === "failed") {
-          console.error("[IMG-POLL] Image validation failed:", data.error);
-          setImageLoaded(true);
-          clearInterval(interval);
-        }
-      } catch (error) {
-        console.error("[IMG-POLL] Error checking image status:", error);
+    queryKey: ["downloads"],
+    queryFn: async () => {
+      const response = await fetch("/api/downloads");
+      if (!response.ok) {
+        throw new Error("Failed to fetch download jobs");
       }
-    }, 500);
-
-    return () => clearInterval(interval);
-  }, [imageJobId]);
-
-  const analyzeMutation = useMutation({
-    mutationFn: async (url: string) => {
-      const response = await apiRequest("POST", "/api/analyze", { url });
-      return await response.json() as AnalyzeResponse;
+      return response.json();
     },
-    onSuccess: (data) => {
-      if (data.success && data.job) {
-        setCurrentJob(data.job);
-        setSelectedChapterIds(data.job.chapters.map((ch) => ch.id));
-        setImageLoaded(false);
-        if (data.job.metadata) {
-          setOutputFormat(data.job.metadata.recommendedFormat);
-          setEditableMetadata({
-            title: data.job.metadata.title,
-            author: data.job.metadata.author,
-            description: data.job.metadata.description,
-            coverUrl: data.job.metadata.coverUrl,
-          });
-          const imgJobId = (data.job.metadata as any).imageJobId;
-          if (imgJobId) {
-            setImageJobId(imgJobId);
-          }
-        }
-        toast({ title: "Analysis Complete", description: `Found ${data.job.chapters.length} chapters` });
-      } else {
-        toast({ title: "Analysis Failed", description: data.message || "Could not analyze the URL", variant: "destructive" });
+    refetchInterval: 2000, // Refetch every 2 seconds
+  });
+
+  const resetState = useCallback(() => {
+    setUrl("");
+    setJobId(null);
+    setMetadata(null);
+    setChapters([]);
+    setSelectedChapterIds([]);
+    setIsAnalyzing(false);
+    setIsDownloading(false);
+    setIsImageLoaded(false);
+  }, []);
+
+  const handleAnalyze = async () => {
+    if (!url) return;
+    setIsAnalyzing(true);
+    setMetadata(null);
+    setChapters([]);
+    setSelectedChapterIds([]);
+    setJobId(null);
+    setIsImageLoaded(false);
+
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to analyze URL");
       }
-    },
-    onError: (error: Error) => {
-      toast({ title: "Analysis Failed", description: error.message || "Failed to analyze the URL", variant: "destructive" });
-    },
-  });
 
-  const startDownloadMutation = useMutation({
-    mutationFn: (variables: any) => apiRequest("POST", "/api/download", variables),
-    onSuccess: (data, variables) => {
-      toast({ title: "Download Started", description: "Your book is being created" });
-      console.log("Download started for job:", variables.jobId);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Download Failed", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const [analysisProgress, setAnalysisProgress] = useState(0);
-
-  useEffect(() => {
-    const analyzingJob = downloadJobs.find((j) => j.status === "analyzing");
-    if (analyzingJob) {
-      setAnalysisProgress(analyzingJob.progress);
-    }
-  }, [downloadJobs]);
-
-  const handleAnalyze = useCallback((url: string) => {
-    analyzeMutation.mutate(url);
-  }, [analyzeMutation]);
-
-  const handleStartDownload = useCallback(() => {
-    if (!currentJob) return;
-
-    if (selectedChapterIds.length > 2000) {
+      const data = await response.json();
+      setJobId(data.job.id);
+      setMetadata(data.job.metadata);
+      setChapters(data.job.chapters);
+      setSelectedChapterIds(data.job.chapters.map((c: Chapter) => c.id));
+      if (data.job.metadata.recommendedFormat) {
+        setOutputFormat(data.job.metadata.recommendedFormat);
+      }
+    } catch (error: any) {
+      console.error(error);
       toast({
-        title: "Too Many Chapters",
-        description: "Downloads are limited to 2000 chapters maximum to ensure stability on mobile devices. Please select fewer chapters.",
+        title: "Error Analyzing URL",
+        description: error.message,
         variant: "destructive",
       });
-      return;
+      resetState();
+    } finally {
+      setIsAnalyzing(false);
     }
+  };
 
-    startDownloadMutation.mutate({
-      jobId: currentJob.id,
-      selectedChapterIds,
-      outputFormat,
-      metadata: editableMetadata,
-      settings: {
-        concurrentDownloads: settings.concurrentDownloads,
-        delayBetweenRequests: settings.delayBetweenRequests,
-        retryAttempts: settings.retryAttempts,
-        includeImages: settings.includeImages,
-        cleanupHtml: settings.cleanupHtml,
-      },
-    });
+  const handleStartDownload = async () => {
+    if (!jobId || !selectedChapterIds.length) return;
 
-    setCurrentJob(null);
+    setIsDownloading(true);
+
+    try {
+      const response = await fetch(`/api/download/${jobId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId,
+            selectedChapterIds,
+            outputFormat,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to start download");
+      }
+
+      toast({
+        title: "Download Started",
+        description: `Your book is being downloaded.`,
+      });
+      resetState(); // Clear the main interface
+    } catch (error: any) {
+      console.error(error);
+      toast({
+        title: "Error Starting Download",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleCancelDownload = async (id: string) => {
+    try {
+      const res = await fetch(`/api/download/${id}/cancel`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error('Failed to cancel download');
+      queryClient.invalidateQueries({ queryKey: ['downloads']});
+      toast({ description: 'Download canceled.'});
+    } catch (err: any) {
+      toast({ description: err.message, variant: 'destructive' });
+    }
+  };
+  
+  const handlePauseDownload = async (id: string) => {
+    try {
+      const res = await fetch(`/api/download/${id}/pause`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to pause download');
+      queryClient.invalidateQueries({ queryKey: ['downloads']});
+      toast({ description: 'Download paused.'});
+    } catch (err: any) {
+      toast({ description: err.message, variant: 'destructive' });
+    }
+  };
+  
+  const handleResumeDownload = async (id: string) => {
+    try {
+      const res = await fetch(`/api/download/${id}/resume`, { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to resume download');
+      queryClient.invalidateQueries({ queryKey: ['downloads']});
+      toast({ description: 'Download resumed.'});
+    } catch (err: any) {
+      toast({ description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleDownloadFile = (path: string | undefined) => {
+    if (!path) return;
+    const link = document.createElement('a');
+    link.href = `/api/download/file/${encodeURIComponent(path)}`;
+    link.download = path.split('/').pop() || 'download';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  const handleChapterSelection = (chapterId: string) => {
+    setSelectedChapterIds((prev) =>
+      prev.includes(chapterId)
+        ? prev.filter((id) => id !== chapterId)
+        : [...prev, chapterId]
+    );
+  };
+
+  const handleSelectAllChapters = () => {
+    setSelectedChapterIds(chapters.map((c) => c.id));
+  };
+
+  const handleDeselectAllChapters = () => {
     setSelectedChapterIds([]);
+  };
 
-  }, [currentJob, selectedChapterIds, outputFormat, editableMetadata, settings, startDownloadMutation, toast]);
+  const handleMetadataChange = (updatedMetadata: Partial<BookMetadata>) => {
+    setMetadata((prev) => prev ? { ...prev, ...updatedMetadata } : null);
+  };
 
-  const handleCancelJob = useCallback(async (jobId: string) => {
-    await apiRequest("POST", `/api/jobs/${jobId}/cancel`);
-    toast({ title: "Job Cancelled", description: "The download has been cancelled." });
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      const text = event.clipboardData?.getData("text");
+      if (text && (text.startsWith("http://") || text.startsWith("https://"))) {
+        setUrl(text);
+        toast({
+          title: "URL Pasted",
+          description: "URL from clipboard has been pasted automatically.",
+        });
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => {
+      window.removeEventListener("paste", handlePaste);
+    };
   }, [toast]);
 
-  const handleClearCompleted = useCallback(async () => {
-    await apiRequest("POST", "/api/jobs/clear-completed");
-    toast({ title: "Queue Cleared", description: "Completed downloads have been cleared." });
-  }, [toast]);
-
-  const handleDownloadFile = useCallback((job: DownloadJob) => {
-    if (job.status === "complete" && job.outputPath) {
-      const url = `/api/download-file?path=${encodeURIComponent(job.outputPath)}`;
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = job.outputPath.split("/").pop() || "download";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+  const renderContent = () => {
+    if (isAnalyzing) {
+      return (
+        <motion.div
+          key="analyzing"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className="text-center space-y-2 flex flex-col items-center justify-center pt-16"
+        >
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Analyzing URL...</p>
+          <p className="text-sm text-muted-foreground/80 max-w-sm">
+            Please wait while we analyze the content, parse chapters, and fetch
+            metadata. This may take a moment.
+          </p>
+        </motion.div>
+      );
     }
-  }, []);
 
-  const handleSettingsChange = useCallback((newSettings: Partial<DownloadSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
-  }, []);
+    if (metadata && chapters.length > 0) {
+      return (
+        <motion.div
+          key="metadata"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8"
+        >
+          <div className="md:col-span-1 space-y-4">
+            <MetadataDisplay metadata={metadata} editable onMetadataChange={handleMetadataChange} onImageLoaded={setIsImageLoaded} />
+            <FormatSelector
+              value={outputFormat}
+              onValueChange={setOutputFormat}
+            />
+            <Button
+              onClick={handleStartDownload}
+              disabled={isDownloading || selectedChapterIds.length === 0 || !isImageLoaded}
+              className="w-full text-base font-bold p-6"
+              size="lg"
+            >
+              {isDownloading ? (
+                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-5 w-5 mr-2" />
+              )}
+              Download ({selectedChapterIds.length} Chapters)
+            </Button>
+          </div>
+          <div className="md:col-span-2">
+            <ChapterList
+              chapters={chapters}
+              selectedChapterIds={selectedChapterIds}
+              onChapterSelection={handleChapterSelection}
+              onSelectAll={handleSelectAllChapters}
+              onDeselectAll={handleDeselectAllChapters}
+            />
+          </div>
+        </motion.div>
+      );
+    }
 
-  const handleMetadataChange = useCallback((newMetadata: Partial<BookMetadata>) => {
-    setEditableMetadata((prev) => ({ ...prev, ...newMetadata }));
-  }, []);
+    return (
+      <div className="pt-16">
+        <AnimatePresence>
+          {downloadJobs.length > 0 ? (
+             <motion.div
+             initial={{ opacity: 0, y: 20 }}
+             animate={{ opacity: 1, y: 0 }}
+             exit={{ opacity: 0, y: -20 }}
+           >
+            <DownloadQueue 
+              jobs={downloadJobs} 
+              onCancel={handleCancelDownload}
+              onPause={handlePauseDownload}
+              onResume={handleResumeDownload}
+              onDownloadFile={(job) => handleDownloadFile(job.outputPath)}
+            />
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <EmptyState />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-md bg-primary/10">
-              <Book className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold">WebToBook</h1>
-              <p className="text-xs text-muted-foreground hidden sm:block">
-                Web Novel to EPUB/PDF Converter
-              </p>
-            </div>
+    <div className="container mx-auto px-4 py-8 md:py-12 flex-1 flex flex-col">
+      <Sidebar isOpen={isSidebarOpen} onOpenChange={setIsSidebarOpen}>
+        <SidebarContent position="left" className="p-0">
+          <SidebarHeader className="p-4 border-b border-card-border">
+            <h2 className="text-lg font-semibold flex items-center gap-2"><Settings className="h-5 w-5"/> Settings</h2>
+          </SidebarHeader>
+          <div className="p-4">
+            <SettingsPanel />
           </div>
-          
-          {downloadJobs.filter(j => ['analyzing', 'downloading', 'processing'].includes(j.status)).length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 text-white font-semibold shadow-lg">
-              <div className="flex gap-1.5">
-                <span className="w-3 h-3 bg-white rounded-full animate-bounce"></span>
-                <span className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
-                <span className="w-3 h-3 bg-white rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></span>
-              </div>
-              <span className="text-sm font-bold">
-                {downloadJobs.filter(j => ['analyzing', 'downloading', 'processing'].includes(j.status)).length} Processing
-              </span>
-            </div>
-          )}
-          
-          <ThemeToggle />
+          <SidebarFooter className="p-4 mt-auto border-t border-card-border">
+            <p className="text-xs text-muted-foreground">v1.0.0</p>
+          </SidebarFooter>
+        </SidebarContent>
+      </Sidebar>
+
+      <header className="flex items-center justify-between mb-6 md:mb-8">
+        <div className="flex items-center gap-2">
+        {metadata && (
+          <Button variant="outline" size="icon" onClick={resetState} className="mr-2">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        )}
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Book className="h-6 w-6 text-primary" /> WebNovel Archiver
+        </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline">View All Downloads</Button>
+          <SidebarTrigger asChild>
+            <Button variant="outline" size="icon">
+              <Settings className="h-5 w-5" />
+            </Button>
+          </SidebarTrigger>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8 space-y-8">
-        <UrlInput
-          onAnalyze={handleAnalyze}
-          isLoading={analyzeMutation.isPending}
-        />
-
-        {analyzeMutation.isPending && (
-          <div className="p-6 rounded-lg border border-border bg-card space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="font-medium text-sm">Analyzing URL and detecting chapters...</p>
-              <p className="text-xs text-muted-foreground">{Math.round(analysisProgress)}%</p>
-            </div>
-            <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${analysisProgress}%` }}
-              />
-            </div>
+      <main className="flex-1 flex flex-col">
+        {!metadata && (
+          <div className="max-w-2xl mx-auto w-full mb-8">
+            <UrlInput
+              url={url}
+              onUrlChange={setUrl}
+              onAnalyze={handleAnalyze}
+              isAnalyzing={isAnalyzing}
+            />
           </div>
         )}
-
-        {analyzeMutation.isError && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>
-              {analyzeMutation.error?.message || "Failed to analyze URL"}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {currentJob ? (
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2 space-y-6">
-              <ChapterList
-                chapters={currentJob.chapters}
-                selectedIds={selectedChapterIds}
-                onSelectionChange={setSelectedChapterIds}
-                isLoading={startDownloadMutation.isPending}
-              />
-
-              {currentJob.chapters.length > 2000 && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Chapter Limit Warning</AlertTitle>
-                  <AlertDescription>
-                    This novel has {currentJob.chapters.length} chapters. Downloads are limited to 2000 chapters maximum to ensure stability and performance on mobile devices. Please select 2000 or fewer chapters to proceed.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {selectedChapterIds.length > 2000 && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Selection Exceeds Limit</AlertTitle>
-                  <AlertDescription>
-                    You have selected {selectedChapterIds.length} chapters, but the maximum allowed is 2000. Please deselect some chapters to continue.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex items-center justify-between gap-4 p-4 rounded-lg border border-card-border bg-card">
-                <div>
-                  <p className="font-medium">
-                    {selectedChapterIds.length} of {currentJob.chapters.length} chapters selected
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Output format: {outputFormat.toUpperCase()}
-                  </p>
-                </div>
-                <Button
-                  onClick={handleStartDownload}
-                  disabled={selectedChapterIds.length === 0 || startDownloadMutation.isPending || (!imageLoaded && !!currentJob?.metadata?.coverUrl)}
-                  className="gap-2"
-                  data-testid="button-start-download"
-                  title={!imageLoaded && currentJob?.metadata?.coverUrl ? "Waiting for cover image to load..." : ""}
-                >
-                  {startDownloadMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Starting...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="h-4 w-4" />
-                      Start Download
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              {currentJob.metadata && (
-                <MetadataDisplay
-                  metadata={{
-                    ...currentJob.metadata,
-                    ...editableMetadata,
-                  }}
-                  onImageLoaded={setImageLoaded}
-                  onMetadataChange={handleMetadataChange}
-                  editable
-                />
-              )}
-
-              <FormatSelector
-                selectedFormat={outputFormat}
-                onFormatChange={setOutputFormat}
-                recommendedFormat={currentJob.metadata?.recommendedFormat}
-                contentType={currentJob.metadata?.detectedContentType}
-              />
-
-              <SettingsPanel
-                settings={settings}
-                onSettingsChange={handleSettingsChange}
-              />
-            </div>
-          </div>
-        ) : (
-          !analyzeMutation.isPending && <EmptyState type="initial" />
-        )}
-
-        {downloadJobs.filter(j => 
-          j.status !== "pending" && j.id !== currentJob?.id
-        ).length > 0 && (
-          <DownloadQueue
-            jobs={downloadJobs.filter(j => 
-              j.status !== "pending" && j.id !== currentJob?.id
-            )}
-            onCancel={handleCancelJob}
-            onClearCompleted={handleClearCompleted}
-            onDownloadFile={handleDownloadFile}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          {renderContent()}
+        </AnimatePresence>
       </main>
-
-      <footer className="border-t border-border py-6 mt-12">
-        <div className="max-w-6xl mx-auto px-4 text-center text-xs text-muted-foreground">
-          <p>WebToBook - Convert web content to portable book formats</p>
-          <p className>Supports 500+ reading sites worldwide</p>
-        </div>
-      </footer>
     </div>
   );
 }

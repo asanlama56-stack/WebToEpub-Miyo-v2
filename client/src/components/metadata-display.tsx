@@ -19,6 +19,7 @@ const contentTypeLabels = {
   novel: "Novel / Fiction",
   technical: "Technical / Non-Fiction",
   article: "Article / Blog",
+  manga: "Manga / Comic",
   unknown: "Unknown",
 };
 
