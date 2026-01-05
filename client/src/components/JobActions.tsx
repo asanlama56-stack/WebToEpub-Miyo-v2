@@ -9,7 +9,6 @@ import {
   MoreVertical,
   Trash2,
   Download,
-  FileText,
   RotateCcw,
   Pause,
   Play,
@@ -22,7 +21,6 @@ interface JobActionsProps {
   onResume?: () => void;
   onCancel?: () => void;
   onDownloadFile?: () => void;
-  onViewFile?: () => void;
   onRetry?: () => void;
 }
 
@@ -32,6 +30,7 @@ export default function JobActions({
   onResume,
   onCancel,
   onDownloadFile,
+  onRetry,
 }: JobActionsProps) {
   const isPaused = job.status === "paused";
   const isDownloading = job.status === "downloading";
@@ -66,8 +65,8 @@ export default function JobActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {isError && (
-            <DropdownMenuItem onSelect={onCancel}>
+          {isError && onRetry && (
+            <DropdownMenuItem onSelect={onRetry}>
               <RotateCcw className="mr-2 h-4 w-4" />
               <span>Retry</span>
             </DropdownMenuItem>

@@ -209,13 +209,6 @@
     pointer-events: none;
   }
 
-  /* .no-default-hover-elevate/no-default-active-elevate is an escape hatch so consumers of
-   * buttons/badges can remove the automatic brightness adjustment on interactions
-   * and program their own. */
-  .no-default-hover-elevate {}
-
-  .no-default-active-elevate {}
-
 
   /**
    * Toggleable backgrounds go behind the content. Hoverable/active goes on top.
@@ -253,7 +246,7 @@
     z-index: 0;
   }
 
-  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .hover-elev.no-default-hover-elevate::after,
   .active-elevate:not(.no-default-active-elevate)::after,
   .hover-elevate-2:not(.no-default-hover-elevate)::after,
   .active-elevate-2:not(.no-default-active-elevate)::after {
