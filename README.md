@@ -1,32 +1,38 @@
-# How to Deploy to Netlify
+# WebToEpub-Miyo-v2
 
-This project is configured for deployment to Netlify. Follow these steps to deploy your application:
+This project is a web application that converts web articles into EPUB format for a better reading experience on e-readers and other devices.
 
-### 1. Connect to GitHub
+## Features
 
-- Create a new repository on GitHub and push your code to it.
+- Convert web articles to EPUB format.
+- Simple and intuitive user interface.
+- Support for various article formats.
 
-### 2. Connect to Netlify
+## Getting Started
 
-- Log in to your Netlify account and select "Add new site" -> "Import an existing project".
-- Connect to your GitHub account and select the repository you just created.
+To get a local copy up and running, follow these simple steps.
 
-### 3. Configure Build Settings
+### Prerequisites
 
-- The build settings are already configured in the `netlify.toml` file. Netlify should automatically detect and apply these settings.
-- **Base directory:** (leave blank)
-- **Build command:** `npm run build`
-- **Publish directory:** `client/dist`
+- Node.js
+- npm
 
-### 4. Add Environment Variables
+### Installation
 
-- In the Netlify UI, go to "Site settings" -> "Build & deploy" -> "Environment".
-- Add the following environment variables:
-  - `DATABASE_URL`: Your Neon database connection string.
-  - `NODE_ENV`: `production`
+1. Clone the repo
+   ```sh
+   git clone https://github.com/asanlama56-stack/WebToEpub-Miyo-v2.git
+   ```
+2. Install NPM packages
+   ```sh
+   npm install
+   ```
 
-### 5. Deploy
+## Usage
 
-- Click the "Deploy site" button. Netlify will start the build and deployment process.
-
-Your site will be live at the URL provided by Netlify once the deployment is complete.
+1. Run the development server
+   ```sh
+   npm run dev
+   ```
+2. Open your browser and navigate to `http://localhost:3000`
+3. Paste the URL of the web article you want to convert and click the "Convert" button.
